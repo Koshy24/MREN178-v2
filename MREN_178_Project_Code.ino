@@ -133,6 +133,23 @@ void moveToFloor(int target){
   lcd.print("Moving to Floor: " + target);
 
   while (target != elevator.currentFloor){
+    /* 
+    EMERGENCY STOP CODE - While moving
+    */
+    if(digitalRead(BUTTONPIN) == LOW){ //switch the LOW to HIGH based on wiring of button 
+      elevator.currentState = EMERGENCY_STOP; 
+    }
+
+    if(elevator.currentState == EMERGENCY_STOP){
+      Serial.println("EMERGENCY STOP ACTIVATED");
+
+      lcd.clear();
+      lcd.setcursor(0,0);
+      lcd.print("!!! EMERGENCY !!!");
+    
+      return; 
+    }
+
     lcd.clear();
     elevator.currentFloor += step;
     lcd.setCursor(elevator.currentFloor, 0);
@@ -150,7 +167,8 @@ void setup() {
   /*
     LCD startup and initial elevator setup
   */
-  
+  pinMode(BUTTONPIN, INPUT_PULLUP); 
+
   Serial.begin(9600);
   lcd.begin(LCD_WIDTH, LCD_HEIGHT);
 
@@ -172,6 +190,23 @@ void setup() {
 }
 
 void loop() {
+
+  /*
+  EMERGENCY STOP CODE - General call 
+  */
+  if(digitalRead(BUTTONPIN) == LOW){ //switch the LOW to HIGH based on wiring of button 
+    elevator.currentState = EMERGENCY_STOP; 
+  }
+
+  if(elevator.currentState == EMERGENCY_STOP){
+    Serial.println("EMERGENCY STOP ACTIVATED");
+
+    lcd.clear();
+    lcd.setcursor(0,0);
+    lcd.print("!!! EMERGENCY !!!");
+    
+    return; 
+  }
   /*
     Floor request parsing
   */
@@ -253,5 +288,6 @@ void loop() {
       Serial.println("Switching to up queue");
     }
   }
+
 
 }
