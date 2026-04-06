@@ -301,10 +301,10 @@ void loop() {
     }
   }
 
-  // movement logic and queue swapping
+  // NON-BLOCKING MOVEMENT LOGIC
   if (elevator.currentDir == UP){
     if (upCount > 0){
-      // 1. Scan for the closest floor ahead of the current floor
+      // 1. Scan for the closest floor AHEAD of us
       int targetIndex = -1;
       for (int i = 0; i < upCount; i++) {
         if (upQueue[i] >= elevator.currentFloor) {
@@ -325,11 +325,11 @@ void loop() {
           moveOneFloor(1); // Force upward step
         }
       } else {
-        // No UP requests ahead of us queue is empty.
+        // No UP requests ahead of us! The sweep is done.
         if (downCount > 0) {
           elevator.currentDir = DOWN; // Switch to Down Queue
         } else {
-          // We have up requests, but they are below current floor so they are deferred to next cycle.
+          // We have UP requests, but they are BELOW us (deferred to next cycle).
           // We must travel down to reset the sweep.
           elevator.currentState = MOVING_DOWN;
           moveOneFloor(-1); 
@@ -344,9 +344,9 @@ void loop() {
 
   else if (elevator.currentDir == DOWN){
     if (downCount > 0){
-      // Scan for the closest floor below current floor
+      // 1. Scan for the closest floor BELOW us
       int targetIndex = -1;
-      // downQueue is sorted descending 
+      // downQueue is sorted descending (e.g., 10, 5, 2)
       for (int i = 0; i < downCount; i++) {
         if (downQueue[i] <= elevator.currentFloor) {
           targetIndex = i;
@@ -354,7 +354,7 @@ void loop() {
         }
       }
 
-      //Execute movement based on scan
+      // 2. Execute movement based on scan
       if (targetIndex != -1) {
         elevator.currentState = MOVING_DOWN;
         int targetFloor = downQueue[targetIndex];
@@ -370,7 +370,7 @@ void loop() {
         if (upCount > 0) {
           elevator.currentDir = UP; 
         } else {
-          // We have down requests, but they are above the current floor so they are deffered to the next cycle.
+          // We have DOWN requests, but they are ABOVE us.
           // Travel up to reset the sweep.
           elevator.currentState = MOVING_UP;
           moveOneFloor(1); 
