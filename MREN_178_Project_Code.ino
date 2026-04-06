@@ -82,22 +82,26 @@ void insertDownRequest(int floorNum){
   insertionSort(downQueue, downCount, DOWN);
 }
 
-/* Popping requests
+/* 
+  Popping requests
 */
-int popUpRequest(){
-  if (upCount == 0) return -1;
-  int nextFloor = upQueue[0];
-  for (int i = 0; i < upCount - 1; i++){
+int popSpecificUpRequest(int index) {
+  if (upCount == 0 || index < 0 || index >= upCount) return -1;
+  int nextFloor = upQueue[index];
+  
+  // Shift everything down to close the gap
+  for (int i = index; i < upCount - 1; i++){
     upQueue[i] = upQueue[i + 1];
   }
   upCount--;
   return nextFloor;
 }
 
-int popDownRequest(){
-  if (downCount == 0) return -1;
-  int nextFloor = downQueue[0];
-  for (int i = 0; i < downCount - 1; i++){
+int popSpecificDownRequest(int index) {
+  if (downCount == 0 || index < 0 || index >= downCount) return -1;
+  int nextFloor = downQueue[index];
+  
+  for (int i = index; i < downCount - 1; i++){
     downQueue[i] = downQueue[i + 1];
   }
   downCount--;
@@ -187,7 +191,7 @@ void moveOneFloor(int step) {
     lcd.print("-");
   }
 
-  // Draw car
+  // Draw elevator
   lcd.setCursor(elevator.currentFloor - 1, 0);
   lcd.write(255);
 
@@ -266,14 +270,29 @@ void loop() {
         Serial.print("Word: "); Serial.println(command);
         Serial.print("Number: "); Serial.println(floorNum); 
 
-        // Route by Math
-        if (floorNum > elevator.currentFloor){
-          Serial.println("Target is above: Place in UP queue");
+        
+        if (command.equalsIgnoreCase("Up")) {
+          Serial.println("Hall Call: Place in UP queue");
           insertUpRequest(floorNum);
-        }
-        else if (floorNum < elevator.currentFloor){
-          Serial.println("Target is below: Place in DOWN queue");
+          if (elevator.currentState == IDLE) elevator.currentDir = UP;
+        } 
+        else if (command.equalsIgnoreCase("Down")) {
+          Serial.println("Hall Call: Place in DOWN queue");
           insertDownRequest(floorNum);
+          if (elevator.currentState == IDLE) elevator.currentDir = DOWN;
+        } 
+        else {
+          // Inside the elevator: route by math
+          if (floorNum > elevator.currentFloor){
+            Serial.println("Car Call: Place in UP queue");
+            insertUpRequest(floorNum);
+            if (elevator.currentState == IDLE) elevator.currentDir = UP;
+          }
+          else if (floorNum < elevator.currentFloor){
+            Serial.println("Car Call: Place in DOWN queue");
+            insertDownRequest(floorNum);
+            if (elevator.currentState == IDLE) elevator.currentDir = DOWN;
+          }
         }
       }
     }
@@ -285,15 +304,36 @@ void loop() {
   // NON-BLOCKING MOVEMENT LOGIC
   if (elevator.currentDir == UP){
     if (upCount > 0){
-      elevator.currentState = MOVING_UP;
-      int targetFloor = upQueue[0]; // Peek at the target
-      
-      // Check if we arrived
-      if (elevator.currentFloor == targetFloor) {
-        popUpRequest(); // Remove from queue
-        cycleDoors();
+      // 1. Scan for the closest floor AHEAD of us
+      int targetIndex = -1;
+      for (int i = 0; i < upCount; i++) {
+        if (upQueue[i] >= elevator.currentFloor) {
+          targetIndex = i;
+          break; // Found the closest valid target in the upward sweep
+        }
+      }
+
+      // 2. Execute movement based on scan
+      if (targetIndex != -1) {
+        elevator.currentState = MOVING_UP;
+        int targetFloor = upQueue[targetIndex];
+        
+        if (elevator.currentFloor == targetFloor) {
+          popSpecificUpRequest(targetIndex); 
+          cycleDoors();
+        } else {
+          moveOneFloor(1); // Force upward step
+        }
       } else {
-        moveOneFloor(1); // Step up one floor
+        // No UP requests ahead of us! The sweep is done.
+        if (downCount > 0) {
+          elevator.currentDir = DOWN; // Switch to Down Queue
+        } else {
+          // We have UP requests, but they are BELOW us (deferred to next cycle).
+          // We must travel down to reset the sweep.
+          elevator.currentState = MOVING_DOWN;
+          moveOneFloor(-1); 
+        }
       }
     }
     else if (downCount > 0){
@@ -304,15 +344,37 @@ void loop() {
 
   else if (elevator.currentDir == DOWN){
     if (downCount > 0){
-      elevator.currentState = MOVING_DOWN;
-      int targetFloor = downQueue[0]; // Peek at the target
-      
-      // Check if we arrived
-      if (elevator.currentFloor == targetFloor) {
-        popDownRequest(); // Remove from queue
-        cycleDoors();
+      // 1. Scan for the closest floor BELOW us
+      int targetIndex = -1;
+      // downQueue is sorted descending (e.g., 10, 5, 2)
+      for (int i = 0; i < downCount; i++) {
+        if (downQueue[i] <= elevator.currentFloor) {
+          targetIndex = i;
+          break; 
+        }
+      }
+
+      // 2. Execute movement based on scan
+      if (targetIndex != -1) {
+        elevator.currentState = MOVING_DOWN;
+        int targetFloor = downQueue[targetIndex];
+        
+        if (elevator.currentFloor == targetFloor) {
+          popSpecificDownRequest(targetIndex); 
+          cycleDoors();
+        } else {
+          moveOneFloor(-1); // Force downward step
+        }
       } else {
-        moveOneFloor(-1); // Step down one floor
+        // No DOWN requests below us! The sweep is done.
+        if (upCount > 0) {
+          elevator.currentDir = UP; 
+        } else {
+          // We have DOWN requests, but they are ABOVE us.
+          // Travel up to reset the sweep.
+          elevator.currentState = MOVING_UP;
+          moveOneFloor(1); 
+        }
       }
     }
     else if (upCount > 0){
