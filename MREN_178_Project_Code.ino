@@ -14,6 +14,7 @@
 #define PIND7       7  
 #define BUTTONPIN   A0
 #define ELEVATORSIZE 10
+#define BUZZER      13
 
 LiquidCrystal lcd(PINRS, PINEN, PIND4, PIND5, PIND6, PIND7);
 
@@ -32,6 +33,12 @@ int upCount = 0;
 
 int downQueue[ELEVATORSIZE];
 int downCount = 0; 
+
+void doorChime() {
+  tone(BUZZER_PIN, 1000); delay(150);
+  tone(BUZZER_PIN, 1500); delay(150);
+  noTone(BUZZER_PIN);
+}
 
 void insertUpRequest(int floorNum){
   if (upCount >= ELEVATORSIZE) return; // prevent array overflow
@@ -178,13 +185,19 @@ void moveToFloor(int target){
     _delay_ms(1000);
   }
 
+
+ /* 
+ DOOR OPENING/CLOSING 
+ */
   elevator.currentState = DOOR_OPEN;
   lcd.setCursor(0, 1);
   lcd.print("Doors Opening");
   _delay_ms(1500);
+  
 
   lcd.setCursor(0, 1);
   lcd.print("Doors open       ");
+  doorChime(); 
   _delay_ms(3000);
 
   elevator.currentState = DOOR_CLOSE;
@@ -325,3 +338,5 @@ void loop() {
 
 
 }
+
+
