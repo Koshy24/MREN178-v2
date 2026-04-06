@@ -1,10 +1,7 @@
 #include <LiquidCrystal.h>
 
-#include <DS3231.h>
-
 #define LCD_WIDTH   16
 #define LCD_HEIGHT  2
-#define LCD_SIZE    (LCD_WIDTH * LCD_HEIGHT)
 
 #define PINRS       8
 #define PINEN       9
@@ -13,8 +10,8 @@
 #define PIND6       6 
 #define PIND7       7  
 #define BUTTONPIN   A0
+#define BUZZERPIN   13
 #define ELEVATORSIZE 10
-#define BUZZER      13
 
 LiquidCrystal lcd(PINRS, PINEN, PIND4, PIND5, PIND6, PIND7);
 
@@ -34,12 +31,12 @@ int upCount = 0;
 int downQueue[ELEVATORSIZE];
 int downCount = 0; 
 
-void doorChime() {
-  tone(BUZZER_PIN, 1000); delay(150);
-  tone(BUZZER_PIN, 1500); delay(150);
-  noTone(BUZZER_PIN);
-}
+// Timer variable to track idle time
+unsigned long lastActivityTime = 0;
 
+/*
+  Queue insertions management and sorting
+*/
 void insertUpRequest(int floorNum){
   if (upCount >= ELEVATORSIZE) return; // prevent array overflow
 
@@ -129,35 +126,54 @@ void insertionSort(int arr[], size_t n, Direction d) {
 }
 
 /*
+  EMERGENCY STOP HELPER FUNCTION
+*/
+void checkEmergencyStop() {
+  int btnValue = analogRead(BUTTONPIN);
+  
+  // Check if the analog value is between 600 and 800
+  if (btnValue > 600 && btnValue < 800) {
+    elevator.currentState = EMERGENCY_STOP;
+  }
+
+  // If triggered, halt the system
+  if (elevator.currentState == EMERGENCY_STOP) {
+    Serial.println("EMERGENCY STOP ACTIVATED");
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("EMERGENCY!");
+    lcd.setCursor(0, 1);
+    lcd.print("PRESS RESET BTN");
+    
+    // Infinite loop traps the Arduino here forever until hardware reset
+    while (true) {
+      delay(100); 
+    }
+  }
+}
+
+/*
   lcd animation for floors
 */
 void moveToFloor(int target){
   if (target == -1 || target == elevator.currentFloor) return;
 
+  if (elevator.currentState == DOOR_OPEN){
+    elevator.currentState = DOOR_CLOSE;
+    lcd.setCursor(0, 1);
+    lcd.print("Doors Closing      ");
+    tone(BUZZERPIN, 800, 400);
+    _delay_ms(1500);
+  }
+
   int step = (target>elevator.currentFloor) ? 1: -1;
 
   while (target != elevator.currentFloor){
     /* 
-    EMERGENCY STOP CODE - While moving
+    EMERGENCY stop call - While moving
     */
-    if(digitalRead(BUTTONPIN) == LOW){ //switch the LOW to HIGH based on wiring of button 
-      elevator.currentState = EMERGENCY_STOP; 
-    }
-
-    if(elevator.currentState == EMERGENCY_STOP){
-      Serial.println("EMERGENCY STOP ACTIVATED");
-
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("EMERGENCY!");
-      lcd.setCursor(0,1);
-      lcd.print("PRESS RESET BTN");
-    
-      // Infinite loop traps the Arduino here forever until hardware reset
-      while(true) { 
-       delay(100); 
-      } 
-    }
+    checkEmergencyStop();
 
     lcd.clear();
     elevator.currentFloor += step;
@@ -184,42 +200,53 @@ void moveToFloor(int target){
 
     _delay_ms(1000);
   }
-
-
- /* 
- DOOR OPENING/CLOSING 
- */
+  // Door opening 
   elevator.currentState = DOOR_OPEN;
   lcd.setCursor(0, 1);
   lcd.print("Doors Opening");
-  _delay_ms(1500);
-  
+  tone(BUZZERPIN, 1000, 200);
+  _delay_ms(300);
+  tone(BUZZERPIN, 1000, 200);
+  _delay_ms(1000);
 
   lcd.setCursor(0, 1);
-  lcd.print("Doors open       ");
-  doorChime(); 
+  lcd.print("Doors Open       ");
   _delay_ms(3000);
 
-  elevator.currentState = DOOR_CLOSE;
-  lcd.setCursor(0, 1);
-  lcd.print("Doors Closing      ");
-  _delay_ms(1500);
-  lcd.setCursor(0, 1);
-  lcd.print("              ");
+  if (upCount == 0 && downCount == 0 && elevator.currentFloor == 1){
+    lcd.setCursor(0, 1);
+    lcd.print("Idle: Doors Open");
+  }
+
+  else {
+    elevator.currentState = DOOR_CLOSE;
+    lcd.setCursor(0, 1);
+    lcd.print("Doors Closing      ");
+    tone(BUZZERPIN, 800, 400);
+    _delay_ms(1500);
+
+    // Return to IDLE state
+    elevator.currentState = IDLE;
+    lcd.setCursor(0, 1);
+    lcd.print("Elevator Ready   ");
+  }
+  
+  // Reset the idle timer because the elevator just finished an action
+  lastActivityTime = millis();
 
 }
 
-void setup() {
-  
-  /*
-    LCD startup and initial elevator setup
+/*
+    LCD startup, initial elevator, buzzer setup
   */
-  pinMode(BUTTONPIN, INPUT_PULLUP); 
+void setup() {
+  pinMode(BUTTONPIN, INPUT);
+  pinMode(BUZZERPIN, OUTPUT); 
 
   Serial.begin(9600);
   lcd.begin(LCD_WIDTH, LCD_HEIGHT);
 
-  elevator.currentState = IDLE;
+  elevator.currentState = DOOR_OPEN;
   elevator.currentDir = UP;
   elevator.currentFloor = 1;
 
@@ -234,25 +261,29 @@ void setup() {
   lcd.setCursor(0,1);
   lcd.print("Elevator Ready");
 
+  lastActivityTime = millis(); // Start the stopwatch
 }
 
 void loop() {
-
   /*
-  EMERGENCY STOP CODE - General call 
+  EMERGENCY stop call 
   */
-  if(digitalRead(BUTTONPIN) == LOW){ //switch the LOW to HIGH based on wiring of button 
-    elevator.currentState = EMERGENCY_STOP; 
+  checkEmergencyStop();
+
+  if (upCount == 0 && downCount == 0){
+    if (elevator.currentFloor != 1){
+      elevator.currentState = IDLE;
+    }
+
+    if ((millis() - lastActivityTime >=  20000) && elevator.currentFloor != 1){
+      Serial.println("Idle: returning to Floor 1");
+      insertDownRequest(1);
+    } 
+
   }
 
-  if(elevator.currentState == EMERGENCY_STOP){
-    Serial.println("EMERGENCY STOP ACTIVATED");
-
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("!!! EMERGENCY !!!");
-    
-    return; 
+  else {
+    lastActivityTime = millis();
   }
   /*
     Floor request parsing
@@ -268,7 +299,10 @@ void loop() {
 
       String command = inputCMD.substring(0, spaceIndex); // reads the right characters in the string 
 
-      if (floorNum < 1 || floorNum > 16) Serial.println("Invalid Floor");
+      if (floorNum < 1 || floorNum > 16 || !command.equalsIgnoreCase("Up") || !command.equalsIgnoreCase("Down")) {
+        Serial.println("Invalid Request");
+        return;
+      }
 
       Serial.print("Word: "); Serial.println(command);
       Serial.print("Number: "); Serial.println(floorNum); 
@@ -280,7 +314,7 @@ void loop() {
         insertUpRequest(floorNum);
       }
 
-      else if (command.equalsIgnoreCase("Down")){
+      else if (command.equalsIgnoreCase("Down")){s
         Serial.println("Place in down queue");
 
         insertDownRequest(floorNum);
@@ -297,12 +331,12 @@ void loop() {
 
       }
 
-      else {
-        Serial.println("Invalid request");
-      }
+      
 
     }
-    
+    else {
+      Serial.println("Invalid request");
+    }
   }
 
   /*
@@ -321,6 +355,7 @@ void loop() {
       elevator.currentDir = DOWN;
       Serial.println("Switching to down queue");
     }
+
   }
 
   else if (elevator.currentDir == DOWN){
@@ -334,9 +369,7 @@ void loop() {
       elevator.currentDir = UP;
       Serial.println("Switching to up queue");
     }
+
   }
 
-
 }
-
-
