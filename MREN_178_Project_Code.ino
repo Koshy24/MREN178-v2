@@ -40,7 +40,7 @@ void insertUpRequest(int floorNum){
     if (upQueue[i] == floorNum) return;
   }
 
-  upQueue[upCount] = floorNum
+  upQueue[upCount] = floorNum;
   upCount++;
   
   insertionSort(upQueue, upCount, UP);
@@ -74,14 +74,14 @@ int popUpRequest(){
 
   upCount--;
 
-  return nextFloor - 1;
+  return nextFloor;
 
 }
 
 int popDownRequest(){
   if (downCount == 0) return -1;
 
-  int nextFloor = upQueue[0];
+  int nextFloor = downQueue[0];
 
   for (int i = 0; i < downCount; i++){
     downQueue[i] = downQueue[i + 1];
@@ -89,7 +89,7 @@ int popDownRequest(){
 
   downCount--;
 
-  return nextFloor - 1;
+  return nextFloor;
 
 }
 
@@ -129,9 +129,6 @@ void moveToFloor(int target){
 
   int step = (target>elevator.currentFloor) ? 1: -1;
 
-  lcd.setCursor(0, 1);
-  lcd.print("Moving to Floor: " + target);
-
   while (target != elevator.currentFloor){
     /* 
     EMERGENCY STOP CODE - While moving
@@ -144,22 +141,59 @@ void moveToFloor(int target){
       Serial.println("EMERGENCY STOP ACTIVATED");
 
       lcd.clear();
-      lcd.setcursor(0,0);
-      lcd.print("!!! EMERGENCY !!!");
+      lcd.setCursor(0,0);
+      lcd.print("EMERGENCY!");
+      lcd.setCursor(0,1);
+      lcd.print("PRESS RESET BTN");
     
-      return; 
+      // Infinite loop traps the Arduino here forever until hardware reset
+      while(true) { 
+       delay(100); 
+      } 
     }
 
     lcd.clear();
     elevator.currentFloor += step;
-    lcd.setCursor(elevator.currentFloor, 0);
-    lcd.write(255);
-    for (int i = elevator.currentFloor + 1; i < 16; i++){
+    
+    for (int i = elevator.currentFloor; i < 16; i++){
       lcd.setCursor(i, 0);
       lcd.print("-");
     }
+
+    lcd.setCursor(elevator.currentFloor - 1, 0);
+    lcd.write(255);
+
+    lcd.setCursor(0, 1);
+    lcd.print("Floor: ");
+    lcd.print(elevator.currentFloor);
+
+    if (elevator.currentDir == UP) {
+      lcd.print(" ->");
+    }
+        
+    else {
+      lcd.print(" <-");
+    }
+
     _delay_ms(1000);
   }
+
+  elevator.currentState = DOOR_OPEN;
+  lcd.setCursor(0, 1);
+  lcd.print("Doors Opening");
+  _delay_ms(1500);
+
+  lcd.setCursor(0, 1);
+  lcd.print("Doors open       ");
+  _delay_ms(3000);
+
+  elevator.currentState = DOOR_CLOSE;
+  lcd.setCursor(0, 1);
+  lcd.print("Doors Closing      ");
+  _delay_ms(1500);
+  lcd.setCursor(0, 1);
+  lcd.print("              ");
+
 }
 
 void setup() {
@@ -174,7 +208,7 @@ void setup() {
 
   elevator.currentState = IDLE;
   elevator.currentDir = UP;
-  elevator.currentFloor = 0;
+  elevator.currentFloor = 1;
 
   lcd.setCursor(0, 0);
   lcd.write(255);
@@ -202,7 +236,7 @@ void loop() {
     Serial.println("EMERGENCY STOP ACTIVATED");
 
     lcd.clear();
-    lcd.setcursor(0,0);
+    lcd.setCursor(0,0);
     lcd.print("!!! EMERGENCY !!!");
     
     return; 
