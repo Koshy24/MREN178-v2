@@ -11,7 +11,7 @@
 #define PIND7       7  
 #define BUTTONPIN   A0
 #define BUZZERPIN   13
-#define ELEVATORSIZE 10
+#define ELEVATORSIZE 16
 
 LiquidCrystal lcd(PINRS, PINEN, PIND4, PIND5, PIND6, PIND7);
 
