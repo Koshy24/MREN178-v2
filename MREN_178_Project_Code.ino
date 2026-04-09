@@ -1,41 +1,43 @@
 #include <LiquidCrystal.h>
-
+// LCD Pin Definitions
 #define LCD_WIDTH   16
 #define LCD_HEIGHT  2
-
 #define PINRS       8
 #define PINEN       9
 #define PIND4       4 
 #define PIND5       5 
 #define PIND6       6 
 #define PIND7       7  
+//Hardware And System Definitions
 #define BUTTONPIN   A0
 #define BUZZERPIN   13
 #define ELEVATORSIZE 16
 
 LiquidCrystal lcd(PINRS, PINEN, PIND4, PIND5, PIND6, PIND7);
-
+//FSM and direction states
 enum FSMState {IDLE, MOVING_UP, MOVING_DOWN, DOOR_OPEN, DOOR_CLOSE, EMERGENCY_STOP};
 enum Direction {DOWN = 0, UP = 1};
-
+//Elevator/system State Tracking
 struct Elevator {
   FSMState currentState;
   Direction currentDir;
   int currentFloor;
 } elevator;
 
-// Arrays and Queue tracking
+// Arrays and Queue capacity tracking
 int upQueue[ELEVATORSIZE];
 int upCount = 0;
 
 int downQueue[ELEVATORSIZE];
 int downCount = 0; 
 
-// Timer variable to track idle time
+// Timer variable to track 20 second idle time
 unsigned long lastActivityTime = 0;
 
 /*
   Queue insertions management and sorting
+  Up queue gets sorted in ascending order
+  Down queue gets sorted in decending order 
 */
 void insertionSort(int arr[], size_t n, Direction d) {
   for (int i = 1; i < n; i++) {
@@ -57,12 +59,15 @@ void insertionSort(int arr[], size_t n, Direction d) {
     arr[j + 1] = key;
   }
 }
-
+/*
+  Insertion for up and down queue requests
+  Protects the program against array overflow and duplicate enties before sorting
+*/
 void insertUpRequest(int floorNum){
-  if (upCount >= ELEVATORSIZE) return; 
+  if (upCount >= ELEVATORSIZE) return; // prevents memory overflow
 
   for (int i = 0; i < upCount; i++){
-    if (upQueue[i] == floorNum) return;
+    if (upQueue[i] == floorNum) return; // Reject fuplicate floor requests
   }
 
   upQueue[upCount] = floorNum;
@@ -83,7 +88,7 @@ void insertDownRequest(int floorNum){
 }
 
 /* 
-  Popping requests
+  Popping requests by extracting a specific index from the queue and shifting all remaining elements to close the gap
 */
 int popSpecificUpRequest(int index) {
   if (upCount == 0 || index < 0 || index >= upCount) return -1;
@@ -110,10 +115,11 @@ int popSpecificDownRequest(int index) {
 
 /*
   EMERGENCY STOP HELPER
+  Wired to the select button on the LCD screen, if triggered lock the program in an infinite while loop untill reset
 */
 void checkEmergencyStop() {
   int btnValue = analogRead(BUTTONPIN);
-  
+  // Analog voltage for select button press on LCD screen
   if (btnValue > 600 && btnValue < 800) {
     elevator.currentState = EMERGENCY_STOP;
   }
@@ -126,13 +132,14 @@ void checkEmergencyStop() {
     lcd.setCursor(0, 1);
     lcd.print("PRESS RESET BTN");
     while (true) {
-      delay(100); 
+      delay(100); // Traps in infinite loop until hardware resart
     }
   }
 }
 
 /*
   DOOR ANIMATION HELPER
+  Handles the buzzer sound and timing, LCD updating, and idle state logic
 */
 void cycleDoors() {
   elevator.currentState = DOOR_OPEN;
@@ -145,9 +152,9 @@ void cycleDoors() {
 
   lcd.setCursor(0, 1);
   lcd.print("Doors Open     ");
-  delay(3000);
+  delay(3000); // Ooens doors for passengers
 
-  // Check if we stay open at Floor 1
+  // Edge Case: keeps the doors open and idle if the elevator is at the lobby floor 1
   if (upCount == 0 && downCount == 0 && elevator.currentFloor == 1){
     lcd.setCursor(0, 1);
     lcd.print("Idle: Doors Open");
@@ -164,14 +171,15 @@ void cycleDoors() {
     lcd.print("Elevator Ready ");
   }
   
-  lastActivityTime = millis();
+  lastActivityTime = millis(); // reset idle timer
 }
 
 /*
-  NON-BLOCKING MOVEMENT: Take exactly 1 step and return
+  NON-BLOCKING MOVEMENT
+  Moves the elevator 1 step and redraws the LCD screen
 */
 void moveOneFloor(int step) {
-  // Check if doors were left open at Floor 1
+  // Check if doors were left open at Floor 1, and if open close before moving
   if (elevator.currentState == DOOR_OPEN){
     elevator.currentState = DOOR_CLOSE;
     lcd.setCursor(0, 1);
@@ -180,22 +188,22 @@ void moveOneFloor(int step) {
     delay(1500);
   }
 
-  checkEmergencyStop();
+  checkEmergencyStop(); // emergency stop check before completing a movement
 
   lcd.clear();
-  elevator.currentFloor += step;
+  elevator.currentFloor += step; // math for moving up or down movmeent
   
-  // Draw shaft
+  // Draw shaft for the elevator
   for (int i = elevator.currentFloor; i < 16; i++){
     lcd.setCursor(i, 0);
     lcd.print("-");
   }
 
-  // Draw elevator
+  // Draw elevator as a solid block
   lcd.setCursor(elevator.currentFloor - 1, 0);
   lcd.write(255);
 
-  // Draw text
+  // Draw text for direction and current floor number
   lcd.setCursor(0, 1);
   lcd.print("Floor: ");
   lcd.print(elevator.currentFloor);
@@ -212,11 +220,11 @@ void setup() {
 
   Serial.begin(9600);
   lcd.begin(LCD_WIDTH, LCD_HEIGHT);
-
+  // initialize starting state
   elevator.currentState = DOOR_OPEN;
   elevator.currentDir = UP;
   elevator.currentFloor = 1;
-
+  // Draw the initial UI
   lcd.setCursor(0, 0);
   for (int i = 0; i < 16; i++){
     lcd.setCursor(i, 0);
@@ -233,9 +241,10 @@ void setup() {
 }
 
 void loop() {
+  // check emergency button press first
   checkEmergencyStop();
 
-  // IDLE TIMEOUT LOGIC
+  // return to the lobby first floor if completely idle for 20 seconds
   if (upCount == 0 && downCount == 0){
     if (elevator.currentFloor != 1){
       elevator.currentState = IDLE;
@@ -247,7 +256,7 @@ void loop() {
     } 
   }
   else {
-    lastActivityTime = millis();
+    lastActivityTime = millis(); // reset time while requests are still active
   }
 
   // SERIAL PARSING
@@ -270,7 +279,7 @@ void loop() {
         Serial.print("Word: "); Serial.println(command);
         Serial.print("Number: "); Serial.println(floorNum); 
 
-        
+        // routing logic
         if (command.equalsIgnoreCase("Up")) {
           Serial.println("Hall Call: Place in UP queue");
           insertUpRequest(floorNum);
@@ -282,7 +291,7 @@ void loop() {
           if (elevator.currentState == IDLE) elevator.currentDir = DOWN;
         } 
         else {
-          // Inside the elevator: route by math
+          // Inside the elevator: route by math based on current elevator location
           if (floorNum > elevator.currentFloor){
             Serial.println("Car Call: Place in UP queue");
             insertUpRequest(floorNum);
@@ -304,33 +313,33 @@ void loop() {
   // NON-BLOCKING MOVEMENT LOGIC
   if (elevator.currentDir == UP){
     if (upCount > 0){
-      // 1. Scan for the closest floor AHEAD of us
+      // 1. Scan for the closest floor ahead of the elevator current floor
       int targetIndex = -1;
       for (int i = 0; i < upCount; i++) {
         if (upQueue[i] >= elevator.currentFloor) {
           targetIndex = i;
-          break; // Found the closest valid target in the upward sweep
+          break; // closest valid target index is found break
         }
       }
 
-      // 2. Execute movement based on scan
+      // 2. move to the target and service it
       if (targetIndex != -1) {
         elevator.currentState = MOVING_UP;
         int targetFloor = upQueue[targetIndex];
         
         if (elevator.currentFloor == targetFloor) {
           popSpecificUpRequest(targetIndex); 
-          cycleDoors();
+          cycleDoors(); // arrived at desired floor
         } else {
-          moveOneFloor(1); // Force upward step
+          moveOneFloor(1); // Take one step up
         }
       } else {
-        // No UP requests ahead of us! The sweep is done.
+        // 3. change queue logic: when no targets ahead of current floor, sweep is finished
         if (downCount > 0) {
           elevator.currentDir = DOWN; // Switch to Down Queue
         } else {
-          // We have UP requests, but they are BELOW us (deferred to next cycle).
-          // We must travel down to reset the sweep.
+          // Edge Case: if up requests exist but they are below the elevators current floor ignore them and pick them up on the next sweep
+          // Force the downward movement to pick up the passengers wanting to go down
           elevator.currentState = MOVING_DOWN;
           moveOneFloor(-1); 
         }
@@ -341,12 +350,12 @@ void loop() {
       Serial.println("Switching to down queue");
     }
   }
-
+  // downward sweeping logic
   else if (elevator.currentDir == DOWN){
     if (downCount > 0){
-      // 1. Scan for the closest floor BELOW us
+      // 1. Scan for the closest floor the elevator
       int targetIndex = -1;
-      // downQueue is sorted descending (e.g., 10, 5, 2)
+      // downQueue is sorted descending 
       for (int i = 0; i < downCount; i++) {
         if (downQueue[i] <= elevator.currentFloor) {
           targetIndex = i;
@@ -363,15 +372,15 @@ void loop() {
           popSpecificDownRequest(targetIndex); 
           cycleDoors();
         } else {
-          moveOneFloor(-1); // Force downward step
+          moveOneFloor(-1); // Take 1 step down
         }
       } else {
-        // No DOWN requests below us! The sweep is done.
+        // Switch directions
         if (upCount > 0) {
           elevator.currentDir = UP; 
         } else {
-          // We have DOWN requests, but they are ABOVE us.
-          // Travel up to reset the sweep.
+          // Edge Case: down requests exist but they are above the elevators current floor
+          // Ignore them for the next sweep and start serving up requests
           elevator.currentState = MOVING_UP;
           moveOneFloor(1); 
         }
